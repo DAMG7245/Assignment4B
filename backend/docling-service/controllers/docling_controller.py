@@ -4,18 +4,14 @@ import urllib.parse
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
 import boto3
 from botocore.exceptions import ClientError
 
 from docling.datamodel.base_models import ConversionStatus, InputFormat
-from docling.datamodel.pipeline_options import (
-    PdfPipelineOptions,
-    TesseractCliOcrOptions,
-    TesseractOcrOptions,
-)
+from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.doc import ImageRefMode, PictureItem, TableItem
 
@@ -34,36 +30,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class DoclingConverter:
-    def __init__(self, enable_ocr: bool = True, ocr_languages: List[str] = None):
-        """
-        Initialize DoclingConverter with optional OCR support
-        
-        Args:
-            enable_ocr: Flag to enable OCR processing
-            ocr_languages: List of languages for OCR. Use ["auto"] for auto-detection
-        """
+    def __init__(self):
         # Load environment variables from .env file
         load_dotenv()
         
-        # Set default OCR languages if not provided
-        if ocr_languages is None:
-            ocr_languages = ["auto"]
-            
-        # Configure PDF pipeline options with OCR if enabled
-        self.pipeline_options = PdfPipelineOptions(
-            images_scale=2.0,
-            generate_table_images=True,
-            generate_picture_images=True
-        )
-        
-        # Add OCR settings if enabled
-        if enable_ocr:
-            # Use TesseractCliOcrOptions for better performance
-            ocr_options = TesseractCliOcrOptions(lang=ocr_languages)
-            self.pipeline_options.do_ocr = True
-            self.pipeline_options.force_full_page_ocr = True
-            self.pipeline_options.ocr_options = ocr_options
-            logger.info(f"OCR enabled with languages: {ocr_languages}")
+        # Configure PDF pipeline options
+        self.pipeline_options = PdfPipelineOptions()
+        self.pipeline_options.images_scale = 2.0
+        self.pipeline_options.generate_table_images = True
+        self.pipeline_options.generate_picture_images = True
         
         # Initialize document converter
         self.doc_converter = DocumentConverter(
@@ -77,21 +52,12 @@ class DoclingConverter:
         aws_secret_access_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
         aws_region = os.environ.get('AWS_REGION', 'us-east-1')
         self.s3_bucket = os.environ.get('AWS_S3_BUCKET')
+   
         
-        # Fallback to hardcoded values if environment variables are not set
-        if not aws_access_key_id:
-            aws_access_key_id = 'AKIAVPEYV4CHSGHSLHMI'
-            logger.warning("AWS_ACCESS_KEY_ID not found in environment, using hardcoded value")
-            
-        if not aws_secret_access_key:
-            aws_secret_access_key = '91drvLa+Wl66eG0pH6DzqNcniBmSckAXuH3ZmCG8'
-            logger.warning("AWS_SECRET_ACCESS_KEY not found in environment, using hardcoded value")
-            
         if not self.s3_bucket:
-            self.s3_bucket = 'damg7245-nvidia-reports'
-            logger.warning("AWS_S3_BUCKET not found in environment, using hardcoded value")
+            raise ValueError("AWS_S3_BUCKET environment variable is not set")
         
-        # Initialize S3 client with credentials
+        # Initialize S3 client with credentials from environment variables
         self.s3_client = boto3.client(
             's3',
             aws_access_key_id=aws_access_key_id,
@@ -151,7 +117,7 @@ class DoclingConverter:
 
     def upload_to_s3(self, local_path: Path, s3_key: str) -> str:
         """
-        Upload a file to S3 in the docling-parsed folder
+        Upload a file to S3
         
         Args:
             local_path: Path to the local file
@@ -161,12 +127,6 @@ class DoclingConverter:
             S3 URL of the uploaded file
         """
         try:
-            # Prepend the docling-parsed/ folder to the s3_key
-            folder_prefix = "docling-parsed/"
-            # Ensure we don't double-add the prefix if it's already there
-            if not s3_key.startswith(folder_prefix):
-                s3_key = folder_prefix + s3_key
-                
             self.s3_client.upload_file(str(local_path), self.s3_bucket, s3_key)
             s3_url = f"https://{self.s3_bucket}.s3.amazonaws.com/{s3_key}"
             logger.info(f"Successfully uploaded {local_path} to {s3_url}")
@@ -174,52 +134,6 @@ class DoclingConverter:
         except Exception as e:
             logger.error(f"Error uploading to S3: {e}")
             raise
-
-    def process_s3_pdf(self, s3_url: str) -> Dict[str, Any]:
-        """
-        Process a PDF file from an S3 URL, convert to markdown with images,
-        and upload results back to S3
-        
-        Args:
-            s3_url: S3 URL of the PDF file
-        
-        Returns:
-            Dictionary containing processing results with S3 URLs
-        """
-        temp_pdf_path = None
-        temp_output_dir = None
-        
-        try:
-            # Download the PDF from S3
-            temp_pdf_path, s3_key = self.download_from_s3(s3_url)
-            
-            # Create temporary output directory
-            temp_output_dir = Path(tempfile.mkdtemp())
-            
-            # Process the downloaded PDF
-            result = self.process_pdf(temp_pdf_path, temp_output_dir)
-            
-            if result['status'] in ['success', 'partial_success']:
-                # Determine base path for S3 uploads
-                pdf_filename = Path(s3_key).stem
-                processed_base_key = f"processed_reports/{pdf_filename}"
-                
-                # Upload markdown and images to S3
-                s3_urls = self.upload_results_to_s3(temp_output_dir, processed_base_key)
-                
-                # Add S3 URLs to result
-                result.update(s3_urls)
-                result['source_url'] = s3_url
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error processing S3 PDF: {str(e)}")
-            return {'status': 'error', 'message': str(e), 'source_url': s3_url}
-        
-        finally:
-            # Clean up temporary files and directories
-            self.cleanup_temp_files(temp_pdf_path, temp_output_dir)
 
     def upload_results_to_s3(self, output_dir: Path, base_key: str) -> Dict[str, Any]:
         """
@@ -237,14 +151,12 @@ class DoclingConverter:
             'image_urls': []
         }
         
-        # Upload markdown files - always using 'content.md' as the name
+        # Upload markdown files
         markdown_dir = output_dir / "markdown"
         if markdown_dir.exists():
-            # Look specifically for content.md
-            content_md = markdown_dir / "content.md"
-            if content_md.exists():
-                s3_key = f"{base_key}/markdown/content.md"
-                s3_url = self.upload_to_s3(content_md, s3_key)
+            for md_file in markdown_dir.glob("*.md"):
+                s3_key = f"{base_key}/markdown/{md_file.name}"
+                s3_url = self.upload_to_s3(md_file, s3_key)
                 s3_urls['markdown_urls'].append(s3_url)
         
         # Upload image files
@@ -256,6 +168,55 @@ class DoclingConverter:
                 s3_urls['image_urls'].append(s3_url)
         
         return s3_urls
+
+    def process_s3_pdf(self, s3_url: str) -> Optional[str]:
+        """
+        Process a PDF file from an S3 URL, convert to markdown with images,
+        and upload results back to S3
+        
+        Args:
+            s3_url: S3 URL of the PDF file
+        
+        Returns:
+            URL of the uploaded markdown file, or None if processing failed
+        """
+        temp_pdf_path = None
+        temp_output_dir = None
+        
+        try:
+            # Download the PDF from S3
+            temp_pdf_path, s3_key = self.download_from_s3(s3_url)
+            
+            # Create temporary output directory
+            temp_output_dir = Path(tempfile.mkdtemp())
+            
+            # Process the downloaded PDF
+            result = self.process_pdf(temp_pdf_path, temp_output_dir)
+            
+            if result['status'] in ['success', 'partial_success']:
+                # Determine base path for S3 uploads
+                pdf_filename = Path(s3_key).stem
+                processed_base_key = f"docling-parsed/{pdf_filename}"
+                
+                # Upload markdown and images to S3
+                s3_urls = self.upload_results_to_s3(temp_output_dir, processed_base_key)
+                
+                # Return the first markdown URL if available
+                if s3_urls['markdown_urls']:
+                    return s3_urls['markdown_urls'][0]
+                else:
+                    logger.warning("No markdown files were uploaded")
+                    return None
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error processing S3 PDF: {str(e)}")
+            return None
+        
+        finally:
+            # Clean up temporary files and directories
+            self.cleanup_temp_files(temp_pdf_path, temp_output_dir)
 
     def cleanup_temp_files(self, pdf_path: Path = None, output_dir: Path = None):
         """
@@ -292,6 +253,7 @@ class DoclingConverter:
             markdown_dir.mkdir(parents=True, exist_ok=True)
             images_dir.mkdir(parents=True, exist_ok=True)
 
+            logger.info("Going to convert document batch...")
             # Convert PDF
             conv_results = self.doc_converter.convert_all([pdf_path], raises_on_error=False)
             
@@ -304,8 +266,7 @@ class DoclingConverter:
                     markdown_content = conv_res.document.export_to_markdown(
                         image_mode=ImageRefMode.EMBEDDED
                     )
-                    # Use 'content.md' as the file name instead of the base filename
-                    markdown_path = markdown_dir / "content.md"
+                    markdown_path = markdown_dir / f"{base_filename}.md"
                     markdown_path.write_text(markdown_content)
                     
                     # Export tables and images

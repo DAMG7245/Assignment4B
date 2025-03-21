@@ -8,7 +8,10 @@ __pycache__/
 dump.rdb
 
 uploads/
+data/
 __pycache__/
+logs/
+
 
 
 # Distribution / packaging

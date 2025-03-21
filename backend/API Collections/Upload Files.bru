@@ -1,0 +1,17 @@
+meta {
+  name: Upload Files
+  type: http
+  seq: 3
+}
+
+post {
+  url: http://localhost:8003/docling_process_s3_pdf/
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "s3_url": "https://damg7245-nvidia-reports.s3.us-east-1.amazonaws.com/raw_reports/Assignment 4.2 Spring 2025.pdf"
+  }
+}

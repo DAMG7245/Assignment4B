@@ -7,3 +7,4 @@ pdfservices-sdk==4.1.0
 requests>=2.31.0
 pathlib>=1.0.1
 uvicorn==0.27.0 # Required for FastAPI
+python-dotenv>=1.0.0
