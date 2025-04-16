@@ -4,6 +4,14 @@
 ## Project Overview
 This project implements a complete Retrieval-Augmented Generation (RAG) pipeline using Apache Airflow to process NVIDIA quarterly reports. The system enables users to query information across multiple documents with support for different chunking strategies and vector database options.
 
+## Project Links and Resources
+
+- **Codelabs Documentation**: [Codelabs Guide](https://codelabs-preview.appspot.com/?file_id=1XLlDWm32yy7p39wwPVNNOp8ka6qVwBJG0jEmVNScp-k/edit?tab=t.5cpih9qtxm58#0)  
+- **Project Submission Video (5 Minutes)**: [View on Google Drive](https://drive.google.com/drive/u/1/folders/1898HGutXjQIxwx3OVnr_Yvx9Uq_SKAE1)  
+- **Hosted Application Links**:  
+  - **Frontend (Streamlit)**: [165.22.179.171:8501](http://165.22.179.171:8501/)  
+  - **Backend (FastAPI)**: [165.22.179.171:8000](http://165.22.179.171:8000/)
+
 ## Features
 
 - **Document Processing**: Support for recursive, character, and token-based chunking
